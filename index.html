@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <title>樂事物價查詢</title>
+  <style>
+    body {
+      background: #fffad1;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      margin: 0;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    h1 {
+      text-align: center;
+      font-size: 3em;
+      color: #d62828;
+      margin: 30px 0 10px;
+      letter-spacing: 0.1em;
+    }
+
+    .main-container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 30px 20px;
+      gap: 20px;
+      width: 100%;
+    }
+
+    form#insertForm {
+      background: #fff;
+      padding: 20px 30px;
+      border-radius: 12px;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+      width: 100%;
+      max-width: 400px;
+    }
+
+    form#insertForm label {
+      display: block;
+      font-weight: bold;
+      margin-bottom: 6px;
+      color: #333;
+    }
+
+    form#insertForm input {
+      width: 100%;
+      padding: 8px;
+      margin-bottom: 15px;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      font-size: 1em;
+    }
+
+    form#insertForm button {
+      width: 100%;
+      padding: 10px;
+      background-color: #d62828;
+      color: white;
+      font-size: 1.1em;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: background-color 0.3s;
+    }
+
+    form#insertForm button:hover {
+      background-color: #b91c1c;
+    }
+
+    #resultMsg {
+      text-align: center;
+      font-size: 1em;
+      color: #007f00;
+      margin-top: 8px;
+    }
+
+    .search-section {
+      display: flex;
+      gap: 10px;
+      justify-content: center;
+      margin-top: 10px;
+    }
+
+    .search-section input, .search-section button {
+      font-size: 1em;
+      padding: 8px 12px;
+      border: 1px solid #bbb;
+      border-radius: 6px;
+    }
+
+    .search-section button {
+      background-color: #f77f00;
+      color: white;
+      cursor: pointer;
+      transition: background-color 0.3s;
+    }
+
+    .search-section button:hover {
+      background-color: #d97700;
+    }
+
+    #priceTable {
+      width: 100%;
+      max-width: 600px;
+      border-collapse: collapse;
+      background: white;
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+    }
+
+    #priceTable th, #priceTable td {
+      border: 1px solid #eee;
+      padding: 12px;
+      text-align: center;
+      font-size: 1em;
+    }
+
+    #priceTable th {
+      background-color: #ffe600;
+      color: #000;
+    }
+
+    #priceTable td {
+      background-color: #fff;
+    }
+  </style>
+</head>
+
+<body>
+<h1>樂事物價查詢</h1>
+<div class="main-container">
+  <!-- 表單 -->
+  <form id="insertForm">
+    <label for="date">日期：</label>
+    <input type="date" id="date" name="date" required>
+
+    <label for="product_name">商品名稱：</label>
+    <input type="text" id="product_name" name="product_name" required>
+
+    <label for="product_price">商品價格：</label>
+    <input type="number" id="product_price" name="product_price" required>
+
+    <button type="submit">送出</button>
+    <p id="resultMsg"></p>
+  </form>
+
+  <!-- 搜尋 -->
+  <div class="search-section">
+    <input type="text" id="searchInput" placeholder="輸入商品關鍵字">
+    <button id="searchBtn">搜尋</button>
+  </div>
+
+  <!-- 表格 -->
+  <table id="priceTable">
+    <thead>
+    <tr>
+      <th>日期</th>
+      <th>商品名稱</th>
+      <th>商品價格</th>
+    </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+  <!-- 折線圖容器 -->
+  <canvas id="lineChart" width="600" height="300" style="margin-top:30px;"></canvas>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+  async function loadPriceTable(data) {
+    const tbody = document.querySelector('#priceTable tbody');
+    tbody.innerHTML = '';
+    if (!data || data.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="3">查無資料</td></tr>';
+      return;
+    }
+    // 依日期新到舊排序（前端保險再排一次）
+    data.sort((a, b) => b.date.localeCompare(a.date));
+    data.forEach(row => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td>${row.date}</td><td>${row.product_name}</td><td>${row.product_price}</td>`;
+      tbody.appendChild(tr);
+    });
+    // 折線圖繪製
+    // 若有查詢關鍵字才畫圖，否則清空圖表
+    const searchInput = document.getElementById('searchInput');
+    if (searchInput && searchInput.value.trim() !== '') {
+      drawLineChart(data);
+    } else {
+      if (chartInstance) chartInstance.destroy();
+      const ctx = document.getElementById('lineChart').getContext('2d');
+      ctx.clearRect(0, 0, 600, 300);
+    }
+  }
+
+  async function fetchAll() {
+    try {
+      const res = await fetch('/api/price');
+      const data = await res.json();
+      loadPriceTable(data);
+    } catch (err) {
+      loadPriceTable([]);
+    }
+  }
+
+  async function searchPrice(keyword) {
+    try {
+      const res = await fetch(`/api/price/search?name=${encodeURIComponent(keyword)}`);
+      const data = await res.json();
+      loadPriceTable(data);
+    } catch (err) {
+      loadPriceTable([]);
+    }
+  }
+
+  // Chart.js 折線圖繪製函式
+  let chartInstance = null;
+  function drawLineChart(data) {
+    const ctx = document.getElementById('lineChart').getContext('2d');
+    // 先清空畫布
+    if (chartInstance) {
+      chartInstance.destroy();
+    }
+    // 統計同商品名稱的資料
+    const nameCount = {};
+    data.forEach(row => {
+      nameCount[row.product_name] = (nameCount[row.product_name] || 0) + 1;
+    });
+    // 找出有多筆的商品名稱
+    const multiNames = Object.keys(nameCount).filter(name => nameCount[name] > 1);
+    if (multiNames.length === 0) {
+      // 沒有多筆資料就不畫圖
+      ctx.clearRect(0, 0, 600, 300);
+      return;
+    }
+    // 只畫第一個有多筆的商品名稱
+    const targetName = multiNames[0];
+    const filtered = data.filter(row => row.product_name === targetName);
+    // 依日期排序
+    filtered.sort((a, b) => a.date.localeCompare(b.date));
+    const labels = filtered.map(row => row.date);
+    const prices = filtered.map(row => Number(row.product_price));
+    chartInstance = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: labels,
+        datasets: [{
+          label: `${targetName} 價格變化`,
+          data: prices,
+          borderColor: 'rgba(255,99,132,1)',
+          backgroundColor: 'rgba(255,99,132,0.2)',
+          fill: false,
+          tension: 0.1
+        }]
+      },
+      options: {
+        responsive: false,
+        plugins: {
+          legend: { display: true },
+          title: {
+            display: true,
+            text: `${targetName} 價格變化圖`, // ✅ 改放這裡當主標題
+            font: {
+              size: 16
+            }
+          }
+        },
+        scales: {
+          x: {
+            title: { display: true, text: '日期' }
+          },
+          y: {
+            title: {
+              display: true,
+              text: '價格' // 雖然仍是垂直，但較可接受
+              // Chart.js 不支援直接將它畫橫的
+            },
+            beginAtZero: true,
+            suggestedMin: 0
+          }
+        }
+      }
+    });
+  }
+
+  // 初始載入全部資料
+  fetchAll();
+
+  // 表單提交（新增資料）
+  document.getElementById('insertForm').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    const date = document.getElementById('date').value;
+    const product_name = document.getElementById('product_name').value;
+    const product_price = document.getElementById('product_price').value;
+    try {
+      const res = await fetch('/api/insert', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ date, product_name, product_price })
+      });
+      const text = await res.text();
+      document.getElementById('resultMsg').textContent = text;
+      await fetchAll();
+    } catch (err) {
+      document.getElementById('resultMsg').textContent = '發生錯誤';
+    }
+    // 新增成功後清空欄位
+    document.getElementById('date').value = '';
+    document.getElementById('product_name').value = '';
+    document.getElementById('product_price').value = '';
+  });
+
+  // 搜尋功能
+  document.getElementById('searchBtn').addEventListener('click', function () {
+    const keyword = document.getElementById('searchInput').value.trim();
+    if (keyword === '') fetchAll();
+    else searchPrice(keyword);
+  });
+
+  document.getElementById('searchInput').addEventListener('input', function () {
+    const keyword = this.value.trim();
+    if (keyword === '') fetchAll();
+    else searchPrice(keyword);
+  });
+</script>
+</body>
+</html>
