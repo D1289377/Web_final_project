@@ -18,11 +18,28 @@ router.get('/', (req, res) => {
   });
 });
 
-// GET /api/price/search?name=商品名稱 模糊查詢
+// GET /api/price/search?name=商品名稱&startDate=YYYY-MM-DD&endDate=YYYY-MM-DD
 router.get('/search', (req, res) => {
-  const name = req.query.name || '';
+  const name = req.query.name;
+  const startDate = req.query.startDate;
+  const endDate = req.query.endDate;
   const db = new sqlite3.Database(dbPath);
-  db.all('SELECT * FROM price_query WHERE product_name LIKE ? ORDER BY date DESC', [`%${name}%`], (err, rows) => {
+  let sql = 'SELECT * FROM price_query WHERE 1=1';
+  const params = [];
+  if (name && name.trim() !== '') {
+    sql += ' AND product_name LIKE ?';
+    params.push(`%${name}%`);
+  }
+  if (startDate && startDate.trim() !== '') {
+    sql += ' AND date >= ?';
+    params.push(startDate);
+  }
+  if (endDate && endDate.trim() !== '') {
+    sql += ' AND date <= ?';
+    params.push(endDate);
+  }
+  sql += ' ORDER BY date DESC';
+  db.all(sql, params, (err, rows) => {
     db.close();
     if (err) {
       return res.status(500).json({ error: err.message });
@@ -41,6 +58,23 @@ router.post('/search', (req, res) => {
       return res.status(500).json({ error: err.message });
     }
     res.json(rows);
+  });
+});
+
+// 刪除單筆資料
+router.delete('/:id', (req, res) => {
+  const id = req.params.id;
+  console.log('刪除請求收到 id:', id); // 新增log
+  const db = new sqlite3.Database(dbPath);
+  db.run('DELETE FROM price_query WHERE id = ?', [id], function(err) {
+    db.close();
+    if (err) {
+      return res.status(500).json({ error: err.message });
+    }
+    if (this.changes === 0) {
+      return res.status(404).json({ error: '找不到該筆資料' });
+    }
+    res.json({ success: true });
   });
 });
 

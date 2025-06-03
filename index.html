@@ -147,15 +147,20 @@
     <label for="product_price">商品價格：</label>
     <input type="number" id="product_price" name="product_price" required>
 
-    <button type="submit">送出</button>
+    <button type="submit">新增</button>
     <p id="resultMsg"></p>
   </form>
 
   <!-- 搜尋 -->
   <div class="search-section">
+    <input type="date" id="startDate" placeholder="開始日期">
+    <input type="date" id="endDate" placeholder="結束日期">
     <input type="text" id="searchInput" placeholder="輸入商品關鍵字">
     <button id="searchBtn">搜尋</button>
   </div>
+
+  <!-- 歷史價格區塊 -->
+  <div id="historyPriceInfo" style="font-size:1.1em;color:#333;"></div>
 
   <!-- 表格 -->
   <table id="priceTable">
@@ -164,6 +169,7 @@
       <th>日期</th>
       <th>商品名稱</th>
       <th>商品價格</th>
+      <th>操作</th>
     </tr>
     </thead>
     <tbody></tbody>
@@ -178,16 +184,22 @@
     const tbody = document.querySelector('#priceTable tbody');
     tbody.innerHTML = '';
     if (!data || data.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="3">查無資料</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="4">查無資料</td></tr>';
       return;
     }
     // 依日期新到舊排序（前端保險再排一次）
     data.sort((a, b) => b.date.localeCompare(a.date));
     data.forEach(row => {
       const tr = document.createElement('tr');
-      tr.innerHTML = `<td>${row.date}</td><td>${row.product_name}</td><td>${row.product_price}</td>`;
+      tr.innerHTML = `<td>${row.date}</td><td>${row.product_name}</td><td>${row.product_price}</td><td><button class="delete-btn" data-id="${row.id}">刪除</button></td>`;
       tbody.appendChild(tr);
     });
+    // 歷史最低/最高價顯示（只有搜尋商品關鍵字時才顯示）
+    if (document.getElementById('searchInput').value.trim() !== '') {
+      showHistoryPriceInfo(data);
+    } else {
+      document.getElementById('historyPriceInfo').textContent = '';
+    }
     // 折線圖繪製
     // 若有查詢關鍵字才畫圖，否則清空圖表
     const searchInput = document.getElementById('searchInput');
@@ -210,9 +222,13 @@
     }
   }
 
-  async function searchPrice(keyword) {
+  async function searchPrice(keyword, startDate, endDate) {
+    const params = new URLSearchParams();
+    if (keyword) params.append('name', keyword);
+    if (startDate) params.append('startDate', startDate);
+    if (endDate) params.append('endDate', endDate);
     try {
-      const res = await fetch(`/api/price/search?name=${encodeURIComponent(keyword)}`);
+      const res = await fetch(`/api/price/search?${params.toString()}`);
       const data = await res.json();
       loadPriceTable(data);
     } catch (err) {
@@ -247,6 +263,12 @@
     filtered.sort((a, b) => a.date.localeCompare(b.date));
     const labels = filtered.map(row => row.date);
     const prices = filtered.map(row => Number(row.product_price));
+    // 找出最低價與最高價的 index
+    let minIdx = 0, maxIdx = 0;
+    prices.forEach((p, i) => {
+      if (p < prices[minIdx]) minIdx = i;
+      if (p > prices[maxIdx]) maxIdx = i;
+    });
     chartInstance = new Chart(ctx, {
       type: 'line',
       data: {
@@ -257,7 +279,13 @@
           borderColor: 'rgba(255,99,132,1)',
           backgroundColor: 'rgba(255,99,132,0.2)',
           fill: false,
-          tension: 0.1
+          tension: 0.1,
+          pointBackgroundColor: prices.map((p, i) =>
+            i === minIdx ? '#007f00' : i === maxIdx ? '#d62828' : 'rgba(255,99,132,1)'
+          ),
+          pointRadius: prices.map((p, i) =>
+            (i === minIdx || i === maxIdx) ? 7 : 4
+          ),
         }]
       },
       options: {
@@ -266,28 +294,45 @@
           legend: { display: true },
           title: {
             display: true,
-            text: `${targetName} 價格變化圖`, // ✅ 改放這裡當主標題
-            font: {
-              size: 16
+            text: `${targetName} 價格變化圖`,
+            font: { size: 16 }
+          },
+          tooltip: {
+            callbacks: {
+              label: function(context) {
+                let label = context.dataset.label || '';
+                if (label) label += ': ';
+                label += context.parsed.y;
+                if (context.dataIndex === minIdx) label += '（最低價）';
+                if (context.dataIndex === maxIdx) label += '（最高價）';
+                return label;
+              }
             }
           }
         },
         scales: {
-          x: {
-            title: { display: true, text: '日期' }
-          },
-          y: {
-            title: {
-              display: true,
-              text: '價格' // 雖然仍是垂直，但較可接受
-              // Chart.js 不支援直接將它畫橫的
-            },
-            beginAtZero: true,
-            suggestedMin: 0
-          }
+          x: { title: { display: true, text: '日期' } },
+          y: { title: { display: true, text: '價格' }, beginAtZero: true, suggestedMin: 0 }
         }
       }
     });
+  }
+
+  // 顯示歷史最低/最高價資訊
+  function showHistoryPriceInfo(data) {
+    if (!data || data.length === 0) {
+      document.getElementById('historyPriceInfo').textContent = '';
+      return;
+    }
+    // 只針對目前查詢結果的商品（如有多種商品，僅顯示查詢結果的全部）
+    let min = data[0], max = data[0];
+    data.forEach(row => {
+      if (Number(row.product_price) < Number(min.product_price)) min = row;
+      if (Number(row.product_price) > Number(max.product_price)) max = row;
+    });
+    document.getElementById('historyPriceInfo').innerHTML =
+      `歷史最低價：<b style="color:#007f00">${min.product_price}</b>（${min.date}）　` +
+      `歷史最高價：<b style="color:#d62828">${max.product_price}</b>（${max.date}）`;
   }
 
   // 初始載入全部資料
@@ -320,14 +365,65 @@
   // 搜尋功能
   document.getElementById('searchBtn').addEventListener('click', function () {
     const keyword = document.getElementById('searchInput').value.trim();
-    if (keyword === '') fetchAll();
-    else searchPrice(keyword);
+    const startDate = document.getElementById('startDate').value;
+    const endDate = document.getElementById('endDate').value;
+    if (!keyword && !startDate && !endDate) {
+      fetchAll();
+    } else {
+      searchPrice(keyword, startDate, endDate);
+    }
   });
 
   document.getElementById('searchInput').addEventListener('input', function () {
     const keyword = this.value.trim();
-    if (keyword === '') fetchAll();
-    else searchPrice(keyword);
+    const startDate = document.getElementById('startDate').value;
+    const endDate = document.getElementById('endDate').value;
+    if (!keyword && !startDate && !endDate) {
+      fetchAll();
+    } else {
+      searchPrice(keyword, startDate, endDate);
+    }
+  });
+
+  document.getElementById('startDate').addEventListener('change', function () {
+    const keyword = document.getElementById('searchInput').value.trim();
+    const startDate = this.value;
+    const endDate = document.getElementById('endDate').value;
+    if (!keyword && !startDate && !endDate) {
+      fetchAll();
+    } else {
+      searchPrice(keyword, startDate, endDate);
+    }
+  });
+
+  document.getElementById('endDate').addEventListener('change', function () {
+    const keyword = document.getElementById('searchInput').value.trim();
+    const startDate = document.getElementById('startDate').value;
+    const endDate = this.value;
+    if (!keyword && !startDate && !endDate) {
+      fetchAll();
+    } else {
+      searchPrice(keyword, startDate, endDate);
+    }
+  });
+
+  // 新增：監聽刪除按鈕
+  document.querySelector('#priceTable').addEventListener('click', async function(e) {
+    if (e.target.classList.contains('delete-btn')) {
+      if (!confirm('確定要刪除這筆資料嗎？')) return;
+      const id = e.target.getAttribute('data-id');
+      try {
+        const res = await fetch(`/api/price/${id}`, { method: 'DELETE' });
+        const result = await res.json();
+        if (result.success) {
+          fetchAll();
+        } else {
+          alert(result.error || '刪除失敗');
+        }
+      } catch (err) {
+        alert('刪除失敗');
+      }
+    }
   });
 </script>
 </body>
