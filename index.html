@@ -152,6 +152,30 @@
     .product-btn:hover {
       background-color: #d97700;
     }
+
+    #exportBtn, #importBtn {
+      background: #b7e4c7;
+      color: #333;
+      border: none; /* 去掉黑色框線 */
+      border-radius: 10px; /* 圓角 */
+      font-size: 1.15em; /* 放大字體 */
+      padding: 12px 28px; /* 放大按鈕 */
+      cursor: pointer;
+      transition: background 0.2s;
+      font-weight: bold;
+    }
+
+    #exportBtn:hover, #importBtn:hover {
+      background: #d8f3dc;
+    }
+
+    #importBtn {
+      background: #a5d8ff;
+    }
+
+    #importBtn:hover {
+      background: #d0ebff;
+    }
   </style>
 </head>
 
@@ -163,6 +187,31 @@
     <button type="button" class="product-btn" data-name="原味">原味</button>
     <button type="button" class="product-btn" data-name="海苔">海苔</button>
     <button type="button" class="product-btn" data-name="辣味">辣味</button>
+  </div>
+  <!-- 匯入/匯出區塊 -->
+  <div style="display:flex;gap:10px;align-items:center;margin:10px 0;">
+    <button id="exportBtn" type="button">匯出CSV</button>
+    <input type="file" id="importFile" accept=".csv" style="display:none;">
+    <button id="importBtn" type="button">匯入CSV</button>
+    <span id="importMsg" style="color:#d62828;font-size:0.95em;"></span>
+  </div>
+  <!-- 價格通知設定區塊 -->
+  <div id="notifySection"
+       style="background:#fff3cd;padding:16px 20px;border-radius:10px;box-shadow:0 2px 8px #0001;max-width:400px;width:100%;margin-bottom:10px;">
+    <b>價格通知設定</b><br>
+    <label>
+      商品名稱：
+      <input type="text" id="notifyName" style="width:120px;">
+    </label>
+    <label>
+      <select id="notifyType">
+        <option value="below">低於</option>
+        <option value="above">高於</option>
+      </select>
+    </label>
+    <input type="number" id="notifyPrice" style="width:80px;" placeholder="價格">
+    <button id="setNotifyBtn" type="button" style="margin-left:8px;">設定</button>
+    <span id="notifyMsg" style="color:#d62828;font-size:0.95em;margin-left:8px;"></span>
   </div>
   <!-- 表單 -->
   <form id="insertForm">
@@ -187,6 +236,9 @@
     <button id="searchBtn">搜尋</button>
   </div>
 
+  <!-- 統計分析區塊 -->
+  <div id="statInfo" style="font-size:1.1em;color:#333;margin:18px 0 8px 0;"></div>
+
   <!-- 歷史價格區塊 -->
   <div id="historyPriceInfo" style="font-size:1.1em;color:#333;"></div>
 
@@ -208,11 +260,60 @@
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
+  // 價格通知功能
+  let notifySetting = null; // {name, type, price}
+  let notifiedIds = new Set(); // 避免重複通知
+
+  // 設定通知
+  document.getElementById('setNotifyBtn').addEventListener('click', function () {
+    const name = document.getElementById('notifyName').value.trim();
+    const type = document.getElementById('notifyType').value;
+    const price = Number(document.getElementById('notifyPrice').value);
+    const msg = document.getElementById('notifyMsg');
+    if (!name || !price) {
+      msg.textContent = '請輸入商品名稱與價格';
+      return;
+    }
+    notifySetting = {name, type, price};
+    notifiedIds.clear();
+    msg.style.color = '#007f00';
+    msg.textContent = `已設定：${name} 價格${type === 'below' ? '低於' : '高於'} ${price} 時通知`;
+  });
+
+  // 檢查是否有符合通知條件的資料
+  function checkNotify(data) {
+    if (!notifySetting) return;
+    let found = false;
+    data.forEach(row => {
+      if (
+              row.product_name === notifySetting.name &&
+              (
+                      (notifySetting.type === 'below' && Number(row.product_price) < notifySetting.price) ||
+                      (notifySetting.type === 'above' && Number(row.product_price) > notifySetting.price)
+              ) &&
+              !notifiedIds.has(row.id)
+      ) {
+        found = true;
+        notifiedIds.add(row.id);
+        // 彈窗通知
+        alert(`【價格通知】\n${row.product_name} 價格${notifySetting.type === 'below' ? '低於' : '高於'} ${notifySetting.price}！\n日期：${row.date}\n價格：${row.product_price}`);
+      }
+    });
+  }
+
+  // 在每次載入表格時自動檢查
+  const oldLoadPriceTable = loadPriceTable;
+  loadPriceTable = function (data) {
+    oldLoadPriceTable(data);
+    checkNotify(data);
+  };
+
   async function loadPriceTable(data) {
     const tbody = document.querySelector('#priceTable tbody');
     tbody.innerHTML = '';
     if (!data || data.length === 0) {
       tbody.innerHTML = '<tr><td colspan="4">查無資料</td></tr>';
+      document.getElementById('statInfo').innerHTML = '';
       return;
     }
     // 依日期新到舊排序（前端保險再排一次）
@@ -228,15 +329,8 @@
     } else {
       document.getElementById('historyPriceInfo').textContent = '';
     }
-    // 折線圖繪製
-    // 若有查詢關鍵字才畫圖，否則清空圖表
-    const searchInput = document.getElementById('searchInput');
-    if (searchInput && searchInput.value.trim() !== '') {
-      drawLineChart(data);
-    } else {
-      // 全部狀態也畫多線圖
-      drawMultiLineChart(data);
-    }
+    // 統計分析顯示
+    showStatInfo(data);
   }
 
   async function fetchAll() {
@@ -434,6 +528,98 @@
       `歷史最高價：<b style="color:#d62828">${max.product_price}</b>（${max.date}）`;
   }
 
+  // 統計分析顯示
+  function showStatInfo(data) {
+    const statDiv = document.getElementById('statInfo');
+    if (!data || data.length === 0) {
+      statDiv.innerHTML = '';
+      return;
+    }
+    // 只針對目前查詢結果的商品（如有多種商品，僅顯示查詢結果的全部）
+    // 先依日期排序
+    const arr = data.slice().sort((a, b) => a.date.localeCompare(b.date));
+    // 取價格數字
+    const prices = arr.map(r => Number(r.product_price));
+    // 取日期
+    const dates = arr.map(r => r.date);
+
+    // 取得本月/今年/近三月的資料
+    const now = new Date();
+    const thisYear = now.getFullYear();
+    const thisMonth = now.getMonth() + 1;
+    // 近三個月的起始
+    const threeMonthAgo = new Date(now.getFullYear(), now.getMonth() - 2, 1);
+    // 本月
+    const arrThisMonth = arr.filter(r => {
+      const d = new Date(r.date);
+      return d.getFullYear() === thisYear && (d.getMonth() + 1) === thisMonth;
+    });
+    // 今年
+    const arrThisYear = arr.filter(r => {
+      const d = new Date(r.date);
+      return d.getFullYear() === thisYear;
+    });
+    // 近三個月
+    const arr3m = arr.filter(r => {
+      const d = new Date(r.date);
+      return d >= threeMonthAgo && d <= now;
+    });
+
+    // 本月平均
+    let avgMonth = arrThisMonth.length ? (arrThisMonth.reduce((s, r) => s + Number(r.product_price), 0) / arrThisMonth.length).toFixed(2) : '-';
+    // 本月最低
+    let minMonth = arrThisMonth.length ? Math.min(...arrThisMonth.map(r => Number(r.product_price))) : '-';
+    // 本月最高
+    let maxMonth = arrThisMonth.length ? Math.max(...arrThisMonth.map(r => Number(r.product_price))) : '-';
+    // 今年最高
+    let maxYear = arrThisYear.length ? Math.max(...arrThisYear.map(r => Number(r.product_price))) : '-';
+
+    // 近三個月漲幅（%）：三個月前的第一筆與最新一筆
+    let change3m = '-';
+    if (arr3m.length >= 2) {
+      // 依日期排序
+      arr3m.sort((a, b) => a.date.localeCompare(b.date));
+      const first = Number(arr3m[0].product_price);
+      const last = Number(arr3m[arr3m.length - 1].product_price);
+      if (first !== 0) {
+        change3m = (((last - first) / first) * 100).toFixed(1) + '%';
+      } else {
+        change3m = '-';
+      }
+    }
+
+    // 本月漲跌幅（%）：本月第一筆與最後一筆
+    let changeMonth = '-';
+    if (arrThisMonth.length >= 2) {
+      arrThisMonth.sort((a, b) => a.date.localeCompare(b.date));
+      const first = Number(arrThisMonth[0].product_price);
+      const last = Number(arrThisMonth[arrThisMonth.length - 1].product_price);
+      if (first !== 0) {
+        changeMonth = (((last - first) / first) * 100).toFixed(1) + '%';
+      } else {
+        changeMonth = '-';
+      }
+    }
+
+    if (arrThisMonth.length === 0) {
+      statDiv.innerHTML = `
+        <span style="color:#888">本月無資料</span><br>
+        <b>今年最高：</b> <span style="color:#d62828">${maxYear}</span>　
+        <b>近三個月漲幅：</b> <span style="color:#f77f00">${change3m}</span>
+      `;
+      return;
+    }
+
+    statDiv.innerHTML = `
+      <b>本月平均：</b> <span style="color:#007f00">${avgMonth}</span>　
+      <b>本月最低：</b> <span style="color:#007f00">${minMonth}</span>　
+      <b>本月最高：</b> <span style="color:#d62828">${maxMonth}</span>　
+      <b>本月漲跌幅：</b> <span style="color:#f77f00">${changeMonth}</span><br>
+      <b>今年最高：</b> <span style="color:#d62828">${maxYear}</span>　
+      <b>近三個月漲幅：</b> <span style="color:#f77f00">${change3m}</span>
+    `;
+  }
+
   // 初始載入全部資料
   fetchAll();
 
@@ -539,6 +725,108 @@
         searchPrice(name, '', '');
       }
     });
+  });
+
+  // 匯出CSV
+  document.getElementById('exportBtn').addEventListener('click', async function () {
+    // 匯出目前查詢結果（表格資料）
+    const tbody = document.querySelector('#priceTable tbody');
+    if (!tbody || tbody.children.length === 0 || tbody.textContent.includes('查無資料')) {
+      alert('沒有可匯出的資料');
+      return;
+    }
+    // 取得目前表格資料
+    let rows = [];
+    for (let tr of tbody.children) {
+      if (tr.children.length < 3) continue;
+      const date = tr.children[0].textContent;
+      const name = tr.children[1].textContent;
+      const price = tr.children[2].textContent;
+      rows.push([date, name, price]);
+    }
+    // 產生CSV字串
+    let csv = '日期,商品名稱,商品價格\n';
+    rows.forEach(r => {
+      csv += r.map(x => `"${x.replace(/"/g, '""')}"`).join(',') + '\n';
+    });
+    // 下載
+    const BOM = '\uFEFF';
+    const blob = new Blob([BOM + csv], {type: 'text/csv'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'price_export.csv';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  });
+
+  // 匯入CSV
+  document.getElementById('importBtn').addEventListener('click', function () {
+    document.getElementById('importFile').click();
+  });
+  document.getElementById('importFile').addEventListener('change', async function (e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    const msg = document.getElementById('importMsg');
+    msg.textContent = '';
+    // 讀取CSV
+    const reader = new FileReader();
+    reader.onload = async function (evt) {
+      let text = evt.target.result;
+      // 解析CSV
+      let lines = text.trim().split(/\r?\n/);
+      if (lines.length < 2) {
+        msg.textContent = 'CSV內容不足';
+        return;
+      }
+      // 檢查標題
+      let header = lines[0].replace(/\s/g, '');
+      if (!/^(日期|date),?(商品名稱|product_name),?(商品價格|product_price)$/i.test(header)) {
+        msg.textContent = 'CSV標題需為: 日期,商品名稱,商品價格';
+        return;
+      }
+      // 轉成物件陣列
+      let data = [];
+      for (let i = 1; i < lines.length; i++) {
+        let cols = lines[i].split(',');
+        if (cols.length < 3) continue;
+        // 去除引號
+        let date = cols[0].replace(/^"|"$/g, '').trim();
+        let name = cols[1].replace(/^"|"$/g, '').trim();
+        let price = cols[2].replace(/^"|"$/g, '').trim();
+        if (!date || !name || !price) continue;
+        data.push({date, product_name: name, product_price: price});
+      }
+      if (data.length === 0) {
+        msg.textContent = '沒有有效資料';
+        return;
+      }
+      // 傳送到後端
+      try {
+        const res = await fetch('/api/import', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({data})
+        });
+        const result = await res.json();
+        if (result.success) {
+          msg.style.color = '#007f00';
+          msg.textContent = `匯入成功，共新增${result.count}筆`;
+          fetchAll();
+        } else {
+          msg.style.color = '#d62828';
+          msg.textContent = result.error || '匯入失敗';
+        }
+      } catch (err) {
+        msg.style.color = '#d62828';
+        msg.textContent = '匯入失敗';
+      }
+    };
+    reader.readAsText(file, 'utf-8');
+    // 清空input
+    e.target.value = '';
   });
 </script>
 </body>
