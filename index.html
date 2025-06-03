@@ -130,12 +130,40 @@
     #priceTable td {
       background-color: #fff;
     }
+
+    .product-buttons {
+      display: flex;
+      gap: 10px;
+      justify-content: center;
+      margin-bottom: 10px;
+    }
+
+    .product-btn {
+      padding: 8px 12px;
+      font-size: 1em;
+      border: 1px solid #bbb;
+      border-radius: 6px;
+      cursor: pointer;
+      background-color: #f77f00;
+      color: white;
+      transition: background-color 0.3s;
+    }
+
+    .product-btn:hover {
+      background-color: #d97700;
+    }
   </style>
 </head>
 
 <body>
 <h1>樂事物價查詢</h1>
 <div class="main-container">
+  <div class="product-buttons" style="display:flex;gap:10px;justify-content:center;margin-bottom:10px;">
+    <button type="button" class="product-btn" data-name="">全部</button>
+    <button type="button" class="product-btn" data-name="原味">原味</button>
+    <button type="button" class="product-btn" data-name="海苔">海苔</button>
+    <button type="button" class="product-btn" data-name="辣味">辣味</button>
+  </div>
   <!-- 表單 -->
   <form id="insertForm">
     <label for="date">日期：</label>
@@ -206,9 +234,8 @@
     if (searchInput && searchInput.value.trim() !== '') {
       drawLineChart(data);
     } else {
-      if (chartInstance) chartInstance.destroy();
-      const ctx = document.getElementById('lineChart').getContext('2d');
-      ctx.clearRect(0, 0, 600, 300);
+      // 全部狀態也畫多線圖
+      drawMultiLineChart(data);
     }
   }
 
@@ -312,6 +339,78 @@
         },
         scales: {
           x: { title: { display: true, text: '日期' } },
+          y: { title: { display: true, text: '價格' }, beginAtZero: true, suggestedMin: 0 }
+        }
+      }
+    });
+  }
+
+  function drawMultiLineChart(data) {
+    const ctx = document.getElementById('lineChart').getContext('2d');
+    if (chartInstance) {
+      chartInstance.destroy();
+    }
+
+    // 依商品名稱分組
+    const group = {};
+    data.forEach(row => {
+      if (!group[row.product_name]) group[row.product_name] = [];
+      group[row.product_name].push(row);
+    });
+
+    // 取得所有日期（去重排序）
+    const allDates = Array.from(new Set(data.map(row => row.date))).sort();
+
+    // 顏色表
+    const colorList = [
+      'rgba(214,40,40,1)',   // 紅
+      'rgba(33,158,188,1)',  // 藍
+      'rgba(255,183,3,1)',   // 黃
+      'rgba(0,168,107,1)',   // 綠
+      'rgba(131,56,236,1)',  // 紫
+      'rgba(255,87,51,1)',   // 橘
+    ];
+
+    // 每個商品一條線
+    const datasets = Object.keys(group).map((name, idx) => {
+      // 依日期排序
+      const arr = group[name].slice().sort((a, b) => a.date.localeCompare(b.date));
+      // 以 allDates 為 x 軸，沒有資料的日期補 null
+      const priceMap = {};
+      arr.forEach(row => {
+        priceMap[row.date] = Number(row.product_price);
+      });
+      const prices = allDates.map(date => priceMap[date] ?? null);
+      return {
+        label: name,
+        data: prices,
+        borderColor: colorList[idx % colorList.length],
+        backgroundColor: colorList[idx % colorList.length] + '33', // 透明
+        fill: false,
+        tension: 0.1,
+        spanGaps: true,
+        pointRadius: 4,
+      };
+    });
+
+    chartInstance = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: allDates,
+        datasets: datasets
+      },
+      options: {
+        responsive: false,
+        plugins: {
+          legend: { display: true },
+          title: {
+            display: true,
+            text: '各商品價格變化圖',
+            font: { size: 16 }
+          }
+        },
+        scales: {
+          x: {title: {display: true, text: '日期'}},
           y: { title: { display: true, text: '價格' }, beginAtZero: true, suggestedMin: 0 }
         }
       }
@@ -424,6 +523,22 @@
         alert('刪除失敗');
       }
     }
+  });
+
+  // 商品快捷查詢按鈕
+  document.querySelectorAll('.product-btn').forEach(btn => {
+    btn.addEventListener('click', function () {
+      const name = this.getAttribute('data-name');
+      document.getElementById('searchInput').value = name;
+      // 清空日期
+      document.getElementById('startDate').value = '';
+      document.getElementById('endDate').value = '';
+      if (name === '') {
+        fetchAll();
+      } else {
+        searchPrice(name, '', '');
+      }
+    });
   });
 </script>
 </body>
