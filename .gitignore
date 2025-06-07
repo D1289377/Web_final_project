@@ -1,8 +1,12 @@
 # Default ignored files
 /shelf/
-/workspace.xml
+/.idea/workspace.xml
 # Editor-based HTTP Client requests
 /httpRequests/
 # Datasource local storage ignored files
 /dataSources/
 /dataSources.local.xml
+# Node.js 專案應忽略的項目
+node_modules/
+.idea/
+*.log
