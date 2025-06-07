@@ -28,6 +28,21 @@ const db = new sqlite3.Database(dbPath, (err) => {
         console.error('建立 price_query 資料表失敗:', err.message);
       } else {
         console.log('已確認 price_query 資料表存在');
+
+        // ✅ ✅ ✅ 👉 在這裡新增 notification_log 資料表 👇
+        db.run(`CREATE TABLE IF NOT EXISTS notification_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email TEXT NOT NULL,
+            product_name TEXT NOT NULL,
+            notify_date TEXT NOT NULL
+        )`, (err) => {
+          if (err) {
+            console.error('建立 notification_log 資料表失敗:', err.message);
+          } else {
+            console.log('已確認 notification_log 資料表存在');
+          }
+        });
+
         // 先檢查資料表是否已有資料，若無才新增
         db.get('SELECT COUNT(*) as count FROM price_query', (err, row) => {
           if (err) {

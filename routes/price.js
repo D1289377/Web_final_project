@@ -2,21 +2,25 @@ const express = require('express');
 const router = express.Router();
 const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
+const { sendNotificationEmail } = require('../mailer');
+
 
 // 資料庫路徑
 const dbPath = path.join(__dirname, '../db/sqlite1.db');
 
-// GET /api/price 查詢所有商品價格資料
-router.get('/', (req, res) => {
+// GET /api/price 查詢所有商品價格資料並寄信
+router.get('/', async (req, res) => {
   const db = new sqlite3.Database(dbPath);
   db.all('SELECT * FROM price_query ORDER BY date DESC', [], (err, rows) => {
     db.close();
     if (err) {
       return res.status(500).json({ error: err.message });
     }
-    res.json(rows);
+    res.json(rows); // ✅ 不要再寄信，這是查資料用的
   });
 });
+
+
 
 // GET /api/price/search?name=商品名稱&startDate=YYYY-MM-DD&endDate=YYYY-MM-DD
 router.get('/search', (req, res) => {

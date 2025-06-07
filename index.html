@@ -187,6 +187,9 @@
     <button type="button" class="product-btn" data-name="原味">原味</button>
     <button type="button" class="product-btn" data-name="海苔">海苔</button>
     <button type="button" class="product-btn" data-name="辣味">辣味</button>
+    <button type="button" class="product-btn" data-name="起司">起司</button>
+    <button type="button" class="product-btn" data-name="鹽味">鹽味</button>
+    <button type="button" class="product-btn" data-name="烤肉">烤肉</button>
   </div>
   <!-- 匯入/匯出區塊 -->
   <div style="display:flex;gap:10px;align-items:center;margin:10px 0;">
@@ -212,6 +215,14 @@
     <input type="number" id="notifyPrice" style="width:80px;" placeholder="價格">
     <button id="setNotifyBtn" type="button" style="margin-left:8px;">設定</button>
     <span id="notifyMsg" style="color:#d62828;font-size:0.95em;margin-left:8px;"></span>
+  </div>
+  <!-- 訂閱 Email 輸入區塊 -->
+  <div id="subscribeSection"
+       style="background:#e3f2fd;padding:16px 20px;border-radius:10px;box-shadow:0 2px 8px #0001;max-width:400px;width:100%;margin-bottom:10px;">
+    <b>訂閱價格通知 Email</b><br>
+    <input type="email" id="subscribeEmail" placeholder="請輸入 Email" style="width:200px;padding:6px;">
+    <button id="subscribeBtn" type="button" style="margin-left:10px;">訂閱</button>
+    <span id="subscribeMsg" style="color:#007f00;font-size:0.95em;margin-left:10px;"></span>
   </div>
   <!-- 表單 -->
   <form id="insertForm">
@@ -256,6 +267,7 @@
   </table>
   <!-- 折線圖容器 -->
   <canvas id="lineChart" width="600" height="300" style="margin-top:30px;"></canvas>
+  <div id="forecastInfo" style="font-size:1.1em; color:#1d3557; margin-top:10px;"></div>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -314,6 +326,8 @@
     if (!data || data.length === 0) {
       tbody.innerHTML = '<tr><td colspan="4">查無資料</td></tr>';
       document.getElementById('statInfo').innerHTML = '';
+      drawLineChart([]); // 清空圖表
+      document.getElementById('forecastInfo').textContent = '';
       return;
     }
     // 依日期新到舊排序（前端保險再排一次）
@@ -331,12 +345,24 @@
     }
     // 統計分析顯示
     showStatInfo(data);
+
+    const keyword = document.getElementById('searchInput').value.trim();
+    if (keyword === '') {
+      drawMultiLineChart(data);  // 顯示全部 → 多商品折線圖
+    } else {
+      drawLineChart(data);       // 有輸入關鍵字 → 單商品預測圖
+    }
+
+    checkNotify(data);     // ← 價格通知
   }
+
 
   async function fetchAll() {
     try {
+      console.log('[fetchAll] called');
       const res = await fetch('/api/price');
       const data = await res.json();
+      console.log('[fetchAll] data =', data);
       loadPriceTable(data);
     } catch (err) {
       loadPriceTable([]);
@@ -437,6 +463,31 @@
         }
       }
     });
+
+    // -------- 預測下一期價格 (線性回歸) --------
+    if (filtered.length >= 2) {
+      const x = filtered.map((_, i) => i); // 當作時間點 0,1,2...
+      const y = filtered.map(row => Number(row.product_price));
+
+      const n = x.length;
+      const sumX = x.reduce((a, b) => a + b, 0);
+      const sumY = y.reduce((a, b) => a + b, 0);
+      const sumXY = x.reduce((acc, xi, i) => acc + xi * y[i], 0);
+      const sumX2 = x.reduce((acc, xi) => acc + xi * xi, 0);
+
+      const slope = (n * sumXY - sumX * sumY) / (n * sumX2 - sumX * sumX);
+      const intercept = (sumY - slope * sumX) / n;
+
+      const nextX = x.length;
+      const nextPrice = (slope * nextX + intercept).toFixed(2);
+
+      // 顯示預測資訊
+      document.getElementById('forecastInfo').innerHTML =
+              `📈 <b>${targetName}</b> 預測下次價格：<span style="color:#e76f51;font-weight:bold">${nextPrice}</span>`;
+    } else {
+      document.getElementById('forecastInfo').textContent = '';
+    }
+
   }
 
   function drawMultiLineChart(data) {
@@ -485,6 +536,7 @@
         spanGaps: true,
         pointRadius: 4,
       };
+
     });
 
     chartInstance = new Chart(ctx, {
@@ -828,6 +880,48 @@
     // 清空input
     e.target.value = '';
   });
+
+  // 初始載入全部資料（等 DOM 載入後再執行）
+  document.addEventListener('DOMContentLoaded', function () {
+    fetchAll();
+  });
+
+  // 訂閱 email 的事件監聽器
+  document.getElementById('subscribeBtn').addEventListener('click', async function () {
+    const email = document.getElementById('subscribeEmail').value.trim();
+    const msg = document.getElementById('subscribeMsg');
+    msg.textContent = '';
+
+    if (!email || !email.includes('@')) {
+      msg.style.color = '#d62828';
+      msg.textContent = '請輸入有效的 Email';
+      return;
+    }
+
+    try {
+      const res = await fetch('/api/subscribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email })
+      });
+      const result = await res.json();
+      if (result.success) {
+        msg.style.color = '#007f00';
+        msg.textContent = '訂閱成功';
+
+        // ✅ 清空 email 輸入欄位
+        document.getElementById('subscribeEmail').value = '';
+      } else {
+        msg.style.color = '#d62828';
+        msg.textContent = result.error || '訂閱失敗';
+      }
+    } catch (err) {
+      msg.style.color = '#d62828';
+      msg.textContent = '發生錯誤，請稍後再試';
+    }
+  });
+
+
 </script>
 </body>
 </html>
