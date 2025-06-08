@@ -315,46 +315,51 @@
 
   // 在每次載入表格時自動檢查
   const oldLoadPriceTable = loadPriceTable;
-  loadPriceTable = function (data) {
-    oldLoadPriceTable(data);
+  loadPriceTable = function (data, keyword = '') {
+    oldLoadPriceTable(data, keyword);
     checkNotify(data);
   };
 
-  async function loadPriceTable(data) {
+  async function loadPriceTable(data, keyword = '') {
     const tbody = document.querySelector('#priceTable tbody');
     tbody.innerHTML = '';
+
     if (!data || data.length === 0) {
       tbody.innerHTML = '<tr><td colspan="4">查無資料</td></tr>';
       document.getElementById('statInfo').innerHTML = '';
       drawLineChart([]); // 清空圖表
-      document.getElementById('forecastInfo').textContent = '';
       return;
     }
-    // 依日期新到舊排序（前端保險再排一次）
+
+    // 日期排序
     data.sort((a, b) => b.date.localeCompare(a.date));
     data.forEach(row => {
       const tr = document.createElement('tr');
       tr.innerHTML = `<td>${row.date}</td><td>${row.product_name}</td><td>${row.product_price}</td><td><button class="delete-btn" data-id="${row.id}">刪除</button></td>`;
       tbody.appendChild(tr);
     });
-    // 歷史最低/最高價顯示（只有搜尋商品關鍵字時才顯示）
-    if (document.getElementById('searchInput').value.trim() !== '') {
+
+    // 歷史價格資訊（只有有關鍵字時才顯示）
+    if (keyword !== '') {
       showHistoryPriceInfo(data);
     } else {
       document.getElementById('historyPriceInfo').textContent = '';
     }
-    // 統計分析顯示
+
+    // 統計分析
     showStatInfo(data);
 
-    const keyword = document.getElementById('searchInput').value.trim();
+    // ✅ 關鍵改這裡：使用參數 keyword 判斷
     if (keyword === '') {
-      drawMultiLineChart(data);  // 顯示全部 → 多商品折線圖
+      drawMultiLineChart(data); // 全商品
+      document.getElementById('forecastInfo').textContent = '';
     } else {
-      drawLineChart(data);       // 有輸入關鍵字 → 單商品預測圖
+      drawLineChart(data, keyword); // 單商品
     }
 
-    checkNotify(data);     // ← 價格通知
+    checkNotify(data);
   }
+
 
 
   async function fetchAll() {
@@ -363,11 +368,12 @@
       const res = await fetch('/api/price');
       const data = await res.json();
       console.log('[fetchAll] data =', data);
-      loadPriceTable(data);
+      loadPriceTable(data, '');  // ✅ 加上空字串 keyword
     } catch (err) {
-      loadPriceTable([]);
+      loadPriceTable([], '');    // ✅ 加上空字串 keyword
     }
   }
+
 
   async function searchPrice(keyword, startDate, endDate) {
     const params = new URLSearchParams();
@@ -377,45 +383,50 @@
     try {
       const res = await fetch(`/api/price/search?${params.toString()}`);
       const data = await res.json();
-      loadPriceTable(data);
+      loadPriceTable(data, keyword); // 👈 傳入 keyword
     } catch (err) {
-      loadPriceTable([]);
+      loadPriceTable([], keyword);
     }
   }
+
 
   // Chart.js 折線圖繪製函式
   let chartInstance = null;
   function drawLineChart(data) {
     const ctx = document.getElementById('lineChart').getContext('2d');
-    // 先清空畫布
-    if (chartInstance) {
-      chartInstance.destroy();
+
+    if (chartInstance) chartInstance.destroy();
+
+    if (!data || data.length === 0) {
+      ctx.clearRect(0, 0, 600, 300);
+      document.getElementById('forecastInfo').textContent = '';
+      return;
     }
-    // 統計同商品名稱的資料
-    const nameCount = {};
-    data.forEach(row => {
-      nameCount[row.product_name] = (nameCount[row.product_name] || 0) + 1;
-    });
-    // 找出有多筆的商品名稱
-    const multiNames = Object.keys(nameCount).filter(name => nameCount[name] > 1);
-    if (multiNames.length === 0) {
-      // 沒有多筆資料就不畫圖
+
+    // 取目前資料的商品名稱（前提是只查詢單一商品）
+    const targetName = data[0].product_name;
+    const filtered = data.filter(row => row.product_name === targetName);
+
+    console.log('[預測檢查] filtered =', filtered);
+    console.log('[預測檢查] 筆數 =', filtered.length);
+
+    // 如果該商品只有 1 筆，沒辦法預測，但還是畫點圖
+    if (filtered.length === 0) {
       ctx.clearRect(0, 0, 600, 300);
       return;
     }
-    // 只畫第一個有多筆的商品名稱
-    const targetName = multiNames[0];
-    const filtered = data.filter(row => row.product_name === targetName);
-    // 依日期排序
+
     filtered.sort((a, b) => a.date.localeCompare(b.date));
     const labels = filtered.map(row => row.date);
     const prices = filtered.map(row => Number(row.product_price));
-    // 找出最低價與最高價的 index
+
+    // 找最大最小價格點
     let minIdx = 0, maxIdx = 0;
     prices.forEach((p, i) => {
       if (p < prices[minIdx]) minIdx = i;
       if (p > prices[maxIdx]) maxIdx = i;
     });
+
     chartInstance = new Chart(ctx, {
       type: 'line',
       data: {
@@ -428,10 +439,10 @@
           fill: false,
           tension: 0.1,
           pointBackgroundColor: prices.map((p, i) =>
-            i === minIdx ? '#007f00' : i === maxIdx ? '#d62828' : 'rgba(255,99,132,1)'
+                  i === minIdx ? '#007f00' : i === maxIdx ? '#d62828' : 'rgba(255,99,132,1)'
           ),
           pointRadius: prices.map((p, i) =>
-            (i === minIdx || i === maxIdx) ? 7 : 4
+                  (i === minIdx || i === maxIdx) ? 7 : 4
           ),
         }]
       },
@@ -464,9 +475,9 @@
       }
     });
 
-    // -------- 預測下一期價格 (線性回歸) --------
+    // 🔮 預測價格（需要至少兩筆資料）
     if (filtered.length >= 2) {
-      const x = filtered.map((_, i) => i); // 當作時間點 0,1,2...
+      const x = filtered.map((_, i) => i);
       const y = filtered.map(row => Number(row.product_price));
 
       const n = x.length;
@@ -481,14 +492,17 @@
       const nextX = x.length;
       const nextPrice = (slope * nextX + intercept).toFixed(2);
 
-      // 顯示預測資訊
+      console.log('[預測進入] 筆數 =', filtered.length); // ✅ 新增這行
+      console.log('[預測資料]', prices);
+      console.log('[預測結果] slope =', slope, 'intercept =', intercept, 'nextPrice =', nextPrice);
+
       document.getElementById('forecastInfo').innerHTML =
               `📈 <b>${targetName}</b> 預測下次價格：<span style="color:#e76f51;font-weight:bold">${nextPrice}</span>`;
     } else {
       document.getElementById('forecastInfo').textContent = '';
     }
-
   }
+
 
   function drawMultiLineChart(data) {
     const ctx = document.getElementById('lineChart').getContext('2d');
@@ -768,16 +782,18 @@
     btn.addEventListener('click', function () {
       const name = this.getAttribute('data-name');
       document.getElementById('searchInput').value = name;
-      // 清空日期
       document.getElementById('startDate').value = '';
       document.getElementById('endDate').value = '';
       if (name === '') {
         fetchAll();
       } else {
-        searchPrice(name, '', '');
+        // 直接使用完整商品名稱來查詢，保證搜尋結果只有一種
+        const fullName = `樂事洋芋片（${name}）`;  // ⭐ 加這行
+        searchPrice(fullName, '', '');             // ⭐ 傳入完整名稱
       }
     });
   });
+
 
   // 匯出CSV
   document.getElementById('exportBtn').addEventListener('click', async function () {
