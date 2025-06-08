@@ -27,7 +27,7 @@ app.use(express.urlencoded({ extended: false }));
 app.use(cookieParser());
 app.use(cors());
 app.use(express.static(path.join(__dirname, 'public')));
-app.use(express.static(__dirname)); // 新增這行，讓根目錄下的 index.html 可被存取
+app.use(express.static(__dirname)); // 新增這行，讓根目錄下的 main.html 可被存取
 
 app.use('/', indexRouter);
 app.use('/users', usersRouter);
