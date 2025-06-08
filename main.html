@@ -176,21 +176,47 @@
     #importBtn:hover {
       background: #d0ebff;
     }
+
+    .product-images {
+      display: flex;
+      justify-content: center;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-bottom: 20px;
+    }
+
+    .product-img {
+      width: 60px;
+      height: 60px;
+      object-fit: contain;
+      cursor: pointer;
+      transition: transform 0.2s, box-shadow 0.2s;
+      border-radius: 10px;
+      background: white;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+
+    .product-img:hover {
+      transform: scale(1.1);
+      box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+    }
+
   </style>
 </head>
 
 <body>
 <h1>樂事物價查詢</h1>
 <div class="main-container">
-  <div class="product-buttons" style="display:flex;gap:10px;justify-content:center;margin-bottom:10px;">
-    <button type="button" class="product-btn" data-name="">全部</button>
-    <button type="button" class="product-btn" data-name="原味">原味</button>
-    <button type="button" class="product-btn" data-name="海苔">海苔</button>
-    <button type="button" class="product-btn" data-name="辣味">辣味</button>
-    <button type="button" class="product-btn" data-name="起司">起司</button>
-    <button type="button" class="product-btn" data-name="鹽味">鹽味</button>
-    <button type="button" class="product-btn" data-name="烤肉">烤肉</button>
+  <div class="product-images">
+    <img src="/lays_all.jpg" class="product-img" data-name="" alt="全部">
+    <img src="/lays_original.png" class="product-img" data-name="原味" alt="原味">
+    <img src="/lays_seaweed.png" class="product-img" data-name="海苔" alt="海苔">
+    <img src="/lays_spicy.png" class="product-img" data-name="辣味" alt="辣味">
+    <img src="/lays_cheese.png" class="product-img" data-name="起司" alt="起司">
+    <img src="/lays_salt.png" class="product-img" data-name="鹽味" alt="鹽味">
+    <img src="/lays_BBQ.png" class="product-img" data-name="烤肉" alt="烤肉">
   </div>
+
   <!-- 匯入/匯出區塊 -->
   <div style="display:flex;gap:10px;align-items:center;margin:10px 0;">
     <button id="exportBtn" type="button">匯出CSV</button>
@@ -777,9 +803,9 @@
     }
   });
 
-  // 商品快捷查詢按鈕
-  document.querySelectorAll('.product-btn').forEach(btn => {
-    btn.addEventListener('click', function () {
+  // 商品快捷查詢（圖片）
+  document.querySelectorAll('.product-img').forEach(img => {
+    img.addEventListener('click', function () {
       const name = this.getAttribute('data-name');
       document.getElementById('searchInput').value = name;
       document.getElementById('startDate').value = '';
@@ -787,12 +813,12 @@
       if (name === '') {
         fetchAll();
       } else {
-        // 直接使用完整商品名稱來查詢，保證搜尋結果只有一種
-        const fullName = `樂事洋芋片（${name}）`;  // ⭐ 加這行
-        searchPrice(fullName, '', '');             // ⭐ 傳入完整名稱
+        const fullName = `樂事洋芋片（${name}）`;
+        searchPrice(fullName, '', '');
       }
     });
   });
+
 
 
   // 匯出CSV
